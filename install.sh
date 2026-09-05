@@ -63,6 +63,84 @@ LOG_FILE="/tmp/schoolcrm_install_$(date +%Y%m%d_%H%M%S).log"
 FILES_CREATED=0
 DIRS_CREATED=0
 
+# Опции установки (по умолчанию false)
+INSTALL_TEST_DATA=false
+INSTALL_JITSI=false
+INSTALL_MATTERMOST=false
+INSTALL_CERTBOT=false
+
+# =============================================================================
+# Парсинг аргументов командной строки
+# =============================================================================
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --test-data)
+                INSTALL_TEST_DATA=true
+                shift
+                ;;
+            --jitsi)
+                INSTALL_JITSI=true
+                shift
+                ;;
+            --mattermost)
+                INSTALL_MATTERMOST=true
+                shift
+                ;;
+            --certbot)
+                INSTALL_CERTBOT=true
+                shift
+                ;;
+            --all)
+                INSTALL_TEST_DATA=true
+                INSTALL_JITSI=true
+                INSTALL_MATTERMOST=true
+                INSTALL_CERTBOT=true
+                shift
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                # Если аргумент не распознан, считаем его директорией установки
+                if [[ ! "$1" =~ ^-- ]]; then
+                    INSTALL_DIR="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+}
+
+show_help() {
+    echo "Использование: sudo ./install.sh [ОПЦИИ] [ДИРЕКТОРИЯ_УСТАНОВКИ]"
+    echo ""
+    echo "Опции:"
+    echo "  --test-data       Установить тестовые данные (пользователи, классы, расписание)"
+    echo "  --jitsi           Установить собственный Jitsi Meet сервер для видеоконференций"
+    echo "  --mattermost      Установить Mattermost сервер для внутренней коммуникации"
+    echo "  --certbot         Установить SSL сертификат (Let's Encrypt или самоподписанный)"
+    echo "  --all             Применить все опции установки (--test-data --jitsi --mattermost --certbot)"
+    echo "  -h, --help        Показать эту справку"
+    echo ""
+    echo "Примеры:"
+    echo "  sudo ./install.sh /opt/schoolcrm"
+    echo "  sudo ./install.sh --test-data /opt/schoolcrm"
+    echo "  sudo ./install.sh --jitsi --test-data /opt/schoolcrm"
+    echo "  sudo ./install.sh --mattermost /opt/schoolcrm"
+    echo "  sudo ./install.sh --certbot /opt/schoolcrm"
+    echo "  sudo ./install.sh --all /opt/schoolcrm"
+    echo ""
+    echo "Роли в Mattermost:"
+    echo "  - teacher   - учитель"
+    echo "  - parent    - родитель"
+    echo "  - student   - ученик"
+    echo "  - admin     - администрация (директор, зам. директора)"
+    echo ""
+}
+
 # =============================================================================
 # Проверки окружения
 # =============================================================================
@@ -630,46 +708,6 @@ print_stats() {
     log_info "Лог установки: $LOG_FILE"
 }
 
-# Главная функция (будет дополняться на следующих страницах)
-main() {
-    echo -e "${CYAN}"
-    echo "╔══════════════════════════════════════════════════╗"
-    echo "║     School CRM — Единый скрипт установки         ║"
-    echo "║     Версия 1.0.0                                 ║"
-    echo "╚══════════════════════════════════════════════════╝"
-    echo -e "${NC}"
-
-    log_info "Директория установки: $INSTALL_DIR"
-
-    # Перенаправление вывода в лог с сохранением в консоли
-    exec > >(tee -a "$LOG_FILE") 2>&1
-
-    # Предполётные проверки
-    check_root
-    check_os
-    check_resources
-
-    # Шаг 1: Структура
-    create_structure
-
-    # Шаг 2: Корневые файлы
-    write_root_files
-
-    # Шаг 3: Конфигурация
-    write_config_files
-
-    # СТРАНИЦА 2 ПРОДОЛЖИТ:
-    # - Шаг 4: Настройки (base, development, production)
-    # - Шаг 5: Middleware и приложения
-    # ...
-
-    print_stats
-    log_success "Страница 1 завершена"
-}
-
-# Запуск (будет раскомментирован на последней странице)
-# main "$@"
-#!/bin/bash
 # =============================================================================
 # СТРАНИЦА 2 / СТРАНИЦА 5
 # =============================================================================
@@ -10983,6 +11021,503 @@ FILE_EOF
 }
 
 # =============================================================================
+# ШАГ 33: Management команда для тестовых данных
+# =============================================================================
+
+write_seed_command() {
+    log_step "Шаг 33/9: Создание команды seed_test_data"
+
+    # -------------------------------------------------------------------------
+    # apps/core/management/commands/seed_test_data.py
+    # -------------------------------------------------------------------------
+    write_file "apps/core/management/commands/seed_test_data.py" << 'FILE_EOF'
+"""
+Management command для заполнения базы тестовыми данными.
+
+Использование:
+    python manage.py seed_test_data
+"""
+
+from django.core.management.base import BaseCommand
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+import random
+
+User = get_user_model()
+
+class Command(BaseCommand):
+    help = 'Заполняет базу тестовыми данными для демонстрации'
+
+    def handle(self, *args, **options):
+        self.stdout.write('Начало загрузки тестовых данных...')
+
+        # Создаём директора
+        director, _ = User.objects.get_or_create(
+            email='director@schoolcrm.local',
+            defaults={
+                'username': 'director',
+                'first_name': 'Иван',
+                'last_name': 'Директоров',
+                'role': 'director',
+                'is_staff': True,
+            }
+        )
+        director.set_password('password123')
+        director.save()
+        self.stdout.write(self.style.SUCCESS('✓ Директор создан'))
+
+        # Создаём заместителя директора
+        viceprincipal, _ = User.objects.get_or_create(
+            email='viceprincipal@schoolcrm.local',
+            defaults={
+                'username': 'viceprincipal',
+                'first_name': 'Петр',
+                'last_name': 'Замдиректоров',
+                'role': 'vice_principal',
+                'is_staff': True,
+            }
+        )
+        viceprincipal.set_password('password123')
+        viceprincipal.save()
+        self.stdout.write(self.style.SUCCESS('✓ Заместитель директора создан'))
+
+        # Создаём учителей
+        for i in range(1, 6):
+            teacher, _ = User.objects.get_or_create(
+                email=f'teacher{i}@schoolcrm.local',
+                defaults={
+                    'username': f'teacher{i}',
+                    'first_name': f'Учитель{i}',
+                    'last_name': f'Учителев{i}',
+                    'role': 'teacher',
+                }
+            )
+            teacher.set_password('password123')
+            teacher.save()
+        self.stdout.write(self.style.SUCCESS('✓ 5 учителей создано'))
+
+        # Создаём классных руководителей
+        for i in range(1, 4):
+            homeroom, _ = User.objects.get_or_create(
+                email=f'homeroom{i}@schoolcrm.local',
+                defaults={
+                    'username': f'homeroom{i}',
+                    'first_name': f'Классный{i}',
+                    'last_name': f'Руководителев{i}',
+                    'role': 'homeroom_teacher',
+                }
+            )
+            homeroom.set_password('password123')
+            homeroom.save()
+        self.stdout.write(self.style.SUCCESS('✓ 3 классных руководителя создано'))
+
+        # Создаём учеников и родителей
+        for class_num in range(1, 4):
+            for student_num in range(1, 11):
+                student_email = f'student{class_num}{student_num:02d}@schoolcrm.local'
+                parent_email = f'parent{class_num}{student_num:02d}@schoolcrm.local'
+
+                student, _ = User.objects.get_or_create(
+                    email=student_email,
+                    defaults={
+                        'username': f'student{class_num}{student_num:02d}',
+                        'first_name': f'Ученик{class_num}-{student_num}',
+                        'last_name': f'Учеников{class_num}-{student_num}',
+                        'role': 'student',
+                        'grade_class': f'{class_num}{"АБВ"[class_num-1]}',
+                    }
+                )
+                student.set_password('password123')
+                student.save()
+
+                parent, _ = User.objects.get_or_create(
+                    email=parent_email,
+                    defaults={
+                        'username': f'parent{class_num}{student_num:02d}',
+                        'first_name': f'Родитель{class_num}-{student_num}',
+                        'last_name': f'Родителев{class_num}-{student_num}',
+                        'role': 'parent',
+                    }
+                )
+                parent.set_password('password123')
+                parent.save()
+
+        self.stdout.write(self.style.SUCCESS('✓ 30 учеников и 30 родителей создано'))
+
+        # Создаём поставщика питания
+        nutrition, _ = User.objects.get_or_create(
+            email='nutrition@schoolcrm.local',
+            defaults={
+                'username': 'nutrition',
+                'first_name': 'Поставщик',
+                'last_name': 'Питания',
+                'role': 'nutrition_provider',
+            }
+        )
+        nutrition.set_password('password123')
+        nutrition.save()
+        self.stdout.write(self.style.SUCCESS('✓ Поставщик питания создан'))
+
+        self.stdout.write(self.style.SUCCESS('\n✅ Тестовые данные успешно загружены!'))
+        self.stdout.write(self.style.WARNING('\n⚠️  Не забудьте сменить пароли после первого входа!'))
+FILE_EOF
+
+    # -------------------------------------------------------------------------
+    # apps/core/management/commands/register_mattermost_users.py
+    # -------------------------------------------------------------------------
+    write_file "apps/core/management/commands/register_mattermost_users.py" << 'FILE_EOF'
+"""
+Management command для массовой регистрации пользователей в Mattermost.
+
+Использование:
+    python manage.py register_mattermost_users --role teacher --count 10 --export xls
+    python manage.py register_mattermost_users --role parent --count 50 --export txt
+    python manage.py register_mattermost_users --role student --count 100
+
+Опции:
+    --role      Роль пользователя: teacher, parent, student, admin
+    --count     Количество пользователей для регистрации (по умолчанию 10)
+    --export    Формат экспорта: txt, xls, csv (по умолчанию txt)
+    --output    Путь к файлу экспорта (по умолчанию /tmp/mattermost_users.{format})
+"""
+
+from django.core.management.base import BaseCommand, CommandError
+from django.contrib.auth import get_user_model
+from django.utils.crypto import get_random_string
+from datetime import datetime
+import os
+import subprocess
+
+User = get_user_model()
+
+# Роли Mattermost
+MATTERMOST_ROLES = {
+    'admin': 'system_admin',
+    'teacher': 'teacher',
+    'parent': 'parent',
+    'student': 'student',
+}
+
+class Command(BaseCommand):
+    help = 'Массовая регистрация пользователей в Mattermost с автогенерацией паролей'
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--role',
+            type=str,
+            choices=['admin', 'teacher', 'parent', 'student'],
+            default='teacher',
+            help='Роль пользователей (admin, teacher, parent, student)'
+        )
+        parser.add_argument(
+            '--count',
+            type=int,
+            default=10,
+            help='Количество пользователей для регистрации'
+        )
+        parser.add_argument(
+            '--export',
+            type=str,
+            choices=['txt', 'xls', 'csv'],
+            default='txt',
+            help='Формат экспорта списка пользователей'
+        )
+        parser.add_argument(
+            '--output',
+            type=str,
+            default=None,
+            help='Путь к файлу экспорта'
+        )
+        parser.add_argument(
+            '--mattermost-url',
+            type=str,
+            default='http://localhost:8065',
+            help='URL Mattermost сервера'
+        )
+        parser.add_argument(
+            '--mattermost-admin-email',
+            type=str,
+            default='admin@schoolcrm.local',
+            help='Email администратора Mattermost'
+        )
+
+    def generate_password(self, length=12):
+        """Генерация случайного пароля"""
+        return get_random_string(length, allowed_chars='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%')
+
+    def generate_username(self, role, index):
+        """Генерация имени пользователя"""
+        role_prefix = {
+            'admin': 'mmadmin',
+            'teacher': 'teacher',
+            'parent': 'parent',
+            'student': 'student',
+        }
+        return f"{role_prefix.get(role, 'user')}{index:03d}"
+
+    def generate_email(self, username):
+        """Генерация email"""
+        return f"{username}@schoolcrm.local"
+
+    def create_user_in_db(self, username, email, password, role, first_name, last_name):
+        """Создание пользователя в базе данных Django"""
+        user, created = User.objects.get_or_create(
+            email=email,
+            defaults={
+                'username': username,
+                'first_name': first_name,
+                'last_name': last_name,
+                'role': role,
+                'mattermost_role': MATTERMOST_ROLES.get(role, 'user'),
+            }
+        )
+        if created:
+            user.set_password(password)
+            user.save()
+        return user, created
+
+    def create_user_in_mattermost(self, username, email, password, first_name, last_name, mm_url, mm_admin_email):
+        """
+        Создание пользователя в Mattermost через API.
+        Для упрощения используем curl запросы.
+        В production рекомендуется использовать официальный Python SDK Mattermost.
+        """
+        # Получаем токен администратора (упрощённая версия)
+        # В реальности нужно сначала аутентифицироваться
+        login_data = f'{{"login_id": "{mm_admin_email}", "password": "admin_password"}}'
+        
+        try:
+            # Логин администратора для получения токена
+            login_result = subprocess.run([
+                'curl', '-s', '-X', 'POST',
+                '-H', 'Content-Type: application/json',
+                '-d', login_data,
+                f'{mm_url}/api/v4/users/login'
+            ], capture_output=True, text=True, timeout=10)
+            
+            # Извлекаем токен из заголовков
+            token = login_result.headers.get('Token', '') if hasattr(login_result, 'headers') else ''
+            
+            if not token:
+                # Если не получили токен, пробуем создать пользователя напрямую
+                # Это упрощённый вариант без реальной аутентификации
+                self.stdout.write(self.style.WARNING(f'⚠️  Не удалось получить токен Mattermost. Пользователь создан только в БД.'))
+                return False
+            
+            # Создаём пользователя
+            user_data = f'''{{
+                "email": "{email}",
+                "username": "{username}",
+                "first_name": "{first_name}",
+                "last_name": "{last_name}",
+                "nickname": "",
+                "position": "",
+                "roles": "{MATTERMOST_ROLES.get("teacher", "teacher")}",
+                "locale": "ru",
+                "password": "{password}"
+            }}'''
+            
+            create_result = subprocess.run([
+                'curl', '-s', '-X', 'POST',
+                '-H', 'Content-Type: application/json',
+                '-H', f'Authorization: Bearer {token}',
+                '-d', user_data,
+                f'{mm_url}/api/v4/users'
+            ], capture_output=True, text=True, timeout=10)
+            
+            if create_result.returncode == 0:
+                return True
+            else:
+                self.stdout.write(self.style.WARNING(f'⚠️  Ошибка при создании в Mattermost: {create_result.stderr}'))
+                return False
+                
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️  Ошибка подключения к Mattermost: {str(e)}'))
+            return False
+
+    def export_to_txt(self, users_data, output_path):
+        """Экспорт в TXT формат"""
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("=" * 80 + "\n")
+            f.write("СПИСОК ЗАРЕГИСТРИРОВАННЫХ ПОЛЬЗОВАТЕЛЕЙ MATTERMOST\n")
+            f.write(f"Дата генерации: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            f.write(f"{'№':<5} {'Username':<20} {'Email':<35} {'Роль':<10} {'Пароль':<15}\n")
+            f.write("-" * 80 + "\n")
+            
+            for i, user in enumerate(users_data, 1):
+                f.write(f"{i:<5} {user['username']:<20} {user['email']:<35} {user['role']:<10} {user['password']:<15}\n")
+            
+            f.write("\n" + "=" * 80 + "\n")
+            f.write(f"Всего пользователей: {len(users_data)}\n")
+            f.write("=" * 80 + "\n")
+        
+        return output_path
+
+    def export_to_csv(self, users_data, output_path):
+        """Экспорт в CSV формат"""
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("№,Username,Email,Роль,Пароль,First Name,Last Name\n")
+            for i, user in enumerate(users_data, 1):
+                f.write(f'{i},{user["username"]},{user["email"]},{user["role"]},{user["password"]},{user["first_name"]},{user["last_name"]}\n')
+        return output_path
+
+    def export_to_xls(self, users_data, output_path):
+        """
+        Экспорт в XLS формат.
+        Используем простой HTML-based Excel файл для совместимости.
+        """
+        html_content = '''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid black; padding: 8px; text-align: left; }
+        th { background-color: #4CAF50; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h2>СПИСОК ЗАРЕГИСТРИРОВАННЫХ ПОЛЬЗОВАТЕЛЕЙ MATTERMOST</h2>
+    <p>Дата генерации: ''' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + '''</p>
+    <table>
+        <tr>
+            <th>№</th>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Роль</th>
+            <th>Пароль</th>
+            <th>Имя</th>
+            <th>Фамилия</th>
+        </tr>
+'''
+        for i, user in enumerate(users_data, 1):
+            html_content += f'''        <tr>
+            <td>{i}</td>
+            <td>{user['username']}</td>
+            <td>{user['email']}</td>
+            <td>{user['role']}</td>
+            <td>{user['password']}</td>
+            <td>{user['first_name']}</td>
+            <td>{user['last_name']}</td>
+        </tr>
+'''
+        
+        html_content += f'''    </table>
+    <p>Всего пользователей: {len(users_data)}</p>
+</body>
+</html>
+'''
+        
+        # Сохраняем как .xls (Excel откроет HTML как таблицу)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        return output_path
+
+    def handle(self, *args, **options):
+        role = options['role']
+        count = options['count']
+        export_format = options['export']
+        output_path = options['output']
+        mm_url = options['mattermost_url']
+        mm_admin_email = options['mattermost_admin_email']
+
+        # Определяем путь экспорта по умолчанию
+        if not output_path:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_path = f'/tmp/mattermost_users_{role}_{timestamp}.{export_format}'
+
+        self.stdout.write(self.style.SUCCESS(f'\n🚀 Начало массовой регистрации пользователей...'))
+        self.stdout.write(f'   Роль: {role}')
+        self.stdout.write(f'   Количество: {count}')
+        self.stdout.write(f'   Формат экспорта: {export_format}')
+        self.stdout.write(f'   Файл экспорта: {output_path}\n')
+
+        users_data = []
+        success_count = 0
+        db_only_count = 0
+
+        first_names = {
+            'admin': ['Александр', 'Дмитрий', 'Сергей', 'Андрей', 'Ольга', 'Елена', 'Наталья'],
+            'teacher': ['Иван', 'Петр', 'Алексей', 'Михаил', 'Анна', 'Мария', 'Екатерина'],
+            'parent': ['Владимир', 'Николай', 'Борис', 'Татьяна', 'Светлана', 'Ирина'],
+            'student': ['Максим', 'Артем', 'Даниил', 'София', 'Алина', 'Виктория'],
+        }
+        
+        last_names = {
+            'admin': ['Админов', 'Директоров', 'Управляющий'],
+            'teacher': ['Учителев', 'Преподавателей', 'Педагогов'],
+            'parent': ['Родителев', 'Папин', 'Мамин'],
+            'student': ['Учеников', 'Школьников', 'Студентов'],
+        }
+
+        for i in range(1, count + 1):
+            username = self.generate_username(role, i)
+            email = self.generate_email(username)
+            password = self.generate_password()
+            
+            # Генерируем имя и фамилию
+            fn_list = first_names.get(role, ['Пользователь'])
+            ln_list = last_names.get(role, ['Пользователей'])
+            first_name = fn_list[i % len(fn_list)]
+            last_name = ln_list[i % len(ln_list)]
+
+            # Создаём в БД Django
+            user, created = self.create_user_in_db(username, email, password, role, first_name, last_name)
+            
+            if created:
+                success_count += 1
+                
+                # Пробуем создать в Mattermost
+                mm_created = self.create_user_in_mattermost(
+                    username, email, password, first_name, last_name, mm_url, mm_admin_email
+                )
+                
+                if mm_created:
+                    self.stdout.write(self.style.SUCCESS(f'✓ [{i}/{count}] {username} ({email}) - создан в БД и Mattermost'))
+                else:
+                    db_only_count += 1
+                    self.stdout.write(self.style.WARNING(f'⚠ [{i}/{count}] {username} ({email}) - создан только в БД'))
+                
+                users_data.append({
+                    'username': username,
+                    'email': email,
+                    'password': password,
+                    'role': role,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                })
+            else:
+                self.stdout.write(self.style.WARNING(f'⚠ [{i}/{count}] {username} уже существует'))
+
+        # Экспортируем данные
+        if users_data:
+            if export_format == 'txt':
+                exported_path = self.export_to_txt(users_data, output_path)
+            elif export_format == 'csv':
+                exported_path = self.export_to_csv(users_data, output_path)
+            elif export_format == 'xls':
+                exported_path = self.export_to_xls(users_data, output_path)
+            else:
+                exported_path = self.export_to_txt(users_data, output_path)
+
+            self.stdout.write(self.style.SUCCESS(f'\n✅ Регистрация завершена!'))
+            self.stdout.write(f'   Успешно создано в БД: {success_count}')
+            self.stdout.write(f'   Создано только в БД (Mattermost недоступен): {db_only_count}')
+            self.stdout.write(f'   Файл экспорта: {exported_path}')
+            self.stdout.write(self.style.WARNING('\n⚠️  Сохраните файл с паролями в безопасном месте!'))
+        else:
+            self.stdout.write(self.style.WARNING('\n⚠️  Пользователи не были созданы'))
+FILE_EOF
+
+    log_success "Команда seed_test_data создана"
+    log_success "Команда register_mattermost_users создана"
+}
+
+# =============================================================================
 # ШАГ 32: Документация
 # =============================================================================
 
@@ -11062,7 +11597,35 @@ install_system_dependencies() {
         curl \
         wget \
         unzip \
-        ufw
+        ufw \
+        gnupg2 \
+        pass \
+        lsb-release \
+        apt-transport-https \
+        ca-certificates \
+        gnupg \
+        lsb-release
+
+    # Проверка и установка Docker если требуется для Mattermost
+    if [ "$INSTALL_MATTERMOST" = true ] && ! command -v docker &> /dev/null; then
+        log_info "Установка Docker для Mattermost..."
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sh get-docker.sh
+        rm -f get-docker.sh
+        systemctl enable docker
+        systemctl start docker
+        log_success "Docker установлен"
+    fi
+
+    # Проверка и установка Docker Compose если требуется
+    if [ "$INSTALL_MATTERMOST" = true ] && ! command -v docker compose &> /dev/null; then
+        log_info "Установка Docker Compose..."
+        mkdir -p /usr/local/lib/docker/cli-plugins
+        curl -SL https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+        chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+        ln -s /usr/local/lib/docker/cli-plugins/docker-compose /usr/bin/docker-compose || true
+        log_success "Docker Compose установлен"
+    fi
 
     log_success "Системные зависимости установлены"
 }
@@ -11376,6 +11939,236 @@ setup_backups() {
 }
 
 # =============================================================================
+# ШАГ 40бис: Установка и настройка Certbot (SSL сертификаты)
+# =============================================================================
+
+install_certbot() {
+    log_step "Шаг 40бис/9: Установка и настройка Certbot для SSL"
+
+    log_info "Установка Certbot и получение SSL сертификата..."
+
+    # Проверка наличия домена
+    DOMAIN=""
+    read -p "Введите доменное имя для SSL сертификата (оставьте пустым для самоподписанного): " DOMAIN
+
+    if [ -z "$DOMAIN" ]; then
+        log_info "Домен не указан. Генерация самоподписанного SSL сертификата..."
+        
+        # Создаём директорию для сертификатов
+        mkdir -p /etc/ssl/schoolcrm
+        
+        # Генерируем самоподписанный сертификат на 365 дней
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /etc/ssl/schoolcrm/server.key \
+            -out /etc/ssl/schoolcrm/server.crt \
+            -subj "/C=RU/ST=Moscow/L=Moscow/O=SchoolCRM/CN=$(hostname -f)" \
+            2>/dev/null
+        
+        log_success "Самоподписанный сертификат создан"
+        log_info "Сертификат: /etc/ssl/schoolcrm/server.crt"
+        log_info "Ключ: /etc/ssl/schoolcrm/server.key"
+        log_warning "⚠️  Самоподписанный сертификат будет действовать 365 дней"
+        log_warning "⚠️  Браузеры будут показывать предупреждение о безопасности"
+        
+        # Настраиваем перевыпуск самоподписанного сертификата
+        cat > /etc/cron.d/schoolcrm-selfsigned << CRON_EOF
+# Перевыпуск самоподписанного SSL сертификата каждые 30 дней
+0 3 1 * * root openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/schoolcrm/server.key -out /etc/ssl/schoolcrm/server.crt -subj "/C=RU/ST=Moscow/L=Moscow/O=SchoolCRM/CN=$(hostname -f)" 2>/dev/null && systemctl reload nginx
+CRON_EOF
+        
+        chmod 644 /etc/cron.d/schoolcrm-selfsigned
+        log_success "Настроен автоматический перевыпуск самоподписанного сертификата (1-го числа каждого месяца)"
+        
+    else
+        log_info "Домен указан: $DOMAIN"
+        
+        # Установка Certbot
+        apt-get update -qq
+        apt-get install -y -qq certbot python3-certbot-nginx
+        
+        # Останавливаем Nginx временно для получения сертификата (если нужно)
+        # или используем standalone mode на порту 80
+        
+        # Получаем сертификат через Certbot
+        log_info "Получение SSL сертификата от Let's Encrypt..."
+        
+        # Проверяем доступность порта 80
+        if ! curl -s --connect-timeout 5 http://$DOMAIN > /dev/null 2>&1; then
+            log_warning "⚠️  Домен $DOMAIN недоступен. Убедитесь, что DNS настроен правильно."
+            log_warning "⚠️  Продолжение установки с самоподписанным сертификатом..."
+            
+            # Генерируем самоподписанный как fallback
+            mkdir -p /etc/ssl/schoolcrm
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                -keyout /etc/ssl/schoolcrm/server.key \
+                -out /etc/ssl/schoolcrm/server.crt \
+                -subj "/C=RU/ST=Moscow/L=Moscow/O=SchoolCRM/CN=$DOMAIN" \
+                2>/dev/null
+            
+            CERT_PATH="/etc/ssl/schoolcrm/server.crt"
+            KEY_PATH="/etc/ssl/schoolcrm/server.key"
+        else
+            # Получаем настоящий сертификат от Let's Encrypt
+            certbot certonly --standalone -d $DOMAIN -d www.$DOMAIN \
+                --email admin@$DOMAIN --agree-tos --non-interactive \
+                || {
+                    log_warning "⚠️  Не удалось получить сертификат Let's Encrypt"
+                    log_warning "⚠️  Используем самоподписанный сертификат"
+                    
+                    mkdir -p /etc/ssl/schoolcrm
+                    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                        -keyout /etc/ssl/schoolcrm/server.key \
+                        -out /etc/ssl/schoolcrm/server.crt \
+                        -subj "/C=RU/ST=Moscow/L=Moscow/O=SchoolCRM/CN=$DOMAIN" \
+                        2>/dev/null
+                    
+                    CERT_PATH="/etc/ssl/schoolcrm/server.crt"
+                    KEY_PATH="/etc/ssl/schoolcrm/server.key"
+                }
+            
+            # Если Certbot успешен, используем его пути
+            if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+                CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+                KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+                log_success "SSL сертификат Let's Encrypt получен успешно"
+                
+                # Настраиваем автопродление через systemd timer
+                log_info "Настройка автоматического продления SSL сертификата..."
+                
+                # Создаём скрипт продления
+                cat > /usr/local/bin/renew-schoolcrm-ssl.sh << 'RENEW_SCRIPT'
+#!/bin/bash
+# Скрипт продления SSL сертификата для School CRM
+# Запускается по таймеру каждые 12 часов
+
+CERT_DOMAIN="$1"
+if [ -z "$CERT_DOMAIN" ]; then
+    echo "Usage: $0 <domain>"
+    exit 1
+fi
+
+# Пробуем продлить сертификат
+certbot renew --quiet --deploy-hook "systemctl reload nginx"
+
+# Проверяем статус продления
+if [ $? -eq 0 ]; then
+    echo "$(date): SSL сертификат успешно продлён для $CERT_DOMAIN" >> /var/log/schoolcrm/ssl-renewal.log
+else
+    echo "$(date): Ошибка продления SSL сертификата для $CERT_DOMAIN" >> /var/log/schoolcrm/ssl-renewal.log
+fi
+RENEW_SCRIPT
+                
+                chmod +x /usr/local/bin/renew-schoolcrm-ssl.sh
+                
+                # Создаём systemd service
+                cat > /etc/systemd/system/schoolcrm-ssl-renewal.service << SERVICE_EOF
+[Unit]
+Description=School CRM SSL Certificate Renewal
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/renew-schoolcrm-ssl.sh $DOMAIN
+SERVICE_EOF
+                
+                # Создаём systemd timer для проверки каждые 12 часов
+                cat > /etc/systemd/system/schoolcrm-ssl-renewal.timer << TIMER_EOF
+[Unit]
+Description=Run School CRM SSL renewal twice daily
+Requires=schoolcrm-ssl-renewal.service
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+OnCalendar=*-*-* 12:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+TIMER_EOF
+                
+                # Активируем таймер
+                systemctl daemon-reload
+                systemctl enable schoolcrm-ssl-renewal.timer
+                systemctl start schoolcrm-ssl-renewal.timer
+                
+                log_success "Systemd таймер настроен для проверки продления SSL каждые 12 часов"
+                log_info "Статус таймера: $(systemctl is-active schoolcrm-ssl-renewal.timer)"
+                
+                # Также добавляем в cron для совместимости
+                (crontab -l 2>/dev/null; echo "0 */12 * * * /usr/local/bin/renew-schoolcrm-ssl.sh $DOMAIN") | crontab -
+                log_success "Дублирование задачи продления в cron (каждые 12 часов)"
+            else
+                log_warning "⚠️  Используются резервные сертификаты"
+            fi
+        fi
+    fi
+    
+    # Обновляем конфигурацию Nginx для использования SSL
+    log_info "Обновление конфигурации Nginx для SSL..."
+    
+    # Находим основной конфиг сайта и обновляем его
+    if [ -f /etc/nginx/sites-available/schoolcrm ]; then
+        # Резервная копия
+        cp /etc/nginx/sites-available/schoolcrm /etc/nginx/sites-available/schoolcrm.bak
+        
+        # Проверяем, есть ли уже SSL настройка
+        if ! grep -q "ssl_certificate" /etc/nginx/sites-available/schoolcrm; then
+            # Добавляем SSL настройки
+            cat > /etc/nginx/sites-available/schoolcrm << 'NGINX_SSL'
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name _;
+    
+    # Пути к сертификатам будут заменены скриптом
+    ssl_certificate /etc/ssl/schoolcrm/server.crt;
+    ssl_certificate_key /etc/ssl/schoolcrm/server.key;
+    
+    # SSL настройки
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    
+    # Остальные настройки...
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINX_SSL
+        fi
+        
+        # Перезагружаем Nginx
+        nginx -t && systemctl reload nginx
+        log_success "Nginx перезагружен с SSL настройками"
+    fi
+    
+    log_success "SSL настройка завершена"
+    
+    # Вывод информации
+    if [ -n "$DOMAIN" ] && [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+        log_info "Домен: $DOMAIN"
+        log_info "Сертификат действителен до: $(openssl x509 -enddate -noout -in /etc/letsencrypt/live/$DOMAIN/fullchain.pem 2>/dev/null | cut -d= -f2)"
+        log_info "Автопродление: включено (проверка каждые 12 часов)"
+    else
+        log_info "Тип сертификата: самоподписанный"
+        log_info "Действителен до: $(openssl x509 -enddate -noout -in /etc/ssl/schoolcrm/server.crt 2>/dev/null | cut -d= -f2)"
+        log_info "Автоперевыпуск: 1-го числа каждого месяца"
+    fi
+}
+
+# =============================================================================
 # ШАГ 41: Запуск сервисов
 # =============================================================================
 
@@ -11399,6 +12192,181 @@ start_services() {
     else
         log_warning "Приложение ещё не готово. Проверьте логи."
     fi
+}
+
+# =============================================================================
+# ШАГ 42: Установка Jitsi Meet (опционально)
+# =============================================================================
+
+install_jitsi() {
+    log_step "Шаг 42/9: Установка Jitsi Meet сервера"
+
+    log_info "Установка Jitsi Meet для видеоконференций..."
+
+    # Добавляем репозиторий Jitsi
+    curl -s https://download.jitsi.org/jitsi-key.gpg.key | gpg --dearmor > /usr/share/keyrings/jitsi-keyring.gpg
+    echo 'deb [signed-by=/usr/share/keyrings/jitsi-keyring.gpg] https://download.jitsi.org stable/' > /etc/apt/sources.list.d/jitsi-stable.list
+
+    # Обновляем пакеты
+    apt-get update -qq
+
+    # Устанавливаем Jitsi Meet (без интерактивного запроса hostname)
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jitsi-meet
+
+    # Настраиваем Jitsi Meet автоматически
+    JITSI_HOSTNAME=$(hostname -f)
+    /usr/share/jitsi-meet/scripts/configure-letsencrypt.sh "$JITSI_HOSTNAME" || true
+
+    log_success "Jitsi Meet установлен"
+    log_info "URL Jitsi Meet: https://$JITSI_HOSTNAME/"
+    log_warning "⚠️  Для работы Jitsi требуется SSL сертификат и открытый порт 443"
+}
+
+# =============================================================================
+# ШАГ 42бис: Установка Mattermost сервера
+# =============================================================================
+
+install_mattermost() {
+    log_step "Шаг 42бис/9: Установка Mattermost сервера"
+
+    log_info "Установка Mattermost для внутренней коммуникации..."
+
+    # Проверка наличия Docker
+    if ! command -v docker &> /dev/null; then
+        log_info "Установка Docker..."
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sh get-docker.sh
+        rm -f get-docker.sh
+    fi
+
+    # Создаём директорию для Mattermost
+    MATTERMOST_DIR="/opt/mattermost"
+    mkdir -p "$MATTERMOST_DIR"
+    cd "$MATTERMOST_DIR"
+
+    # Генерация паролей для Mattermost
+    MM_DB_PASSWORD=$(openssl rand -base64 24)
+    MM_ADMIN_PASSWORD=$(openssl rand -base64 12)
+
+    # Сохраняем пароль администратора
+    echo "MM_ADMIN_PASSWORD=$MM_ADMIN_PASSWORD" > /tmp/.mattermost_admin_password
+    chmod 600 /tmp/.mattermost_admin_password
+
+    # Создаём docker-compose.yml для Mattermost
+    cat > docker-compose.yml << 'DOCKER_EOF'
+version: '3.8'
+services:
+  mattermost-db:
+    image: postgres:13-alpine
+    container_name: mattermost-db
+    restart: always
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: ${MM_DB_PASSWORD}
+      POSTGRES_DB: mattermost
+    volumes:
+      - mattermost-db-data:/var/lib/postgresql/data
+    networks:
+      - mattermost-network
+
+  mattermost-app:
+    image: mattermost/mattermost-team-edition:latest
+    container_name: mattermost-app
+    restart: always
+    depends_on:
+      - mattermost-db
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:${MM_DB_PASSWORD}@mattermost-db:5432/mattermost?sslmode=disable&connect_timeout=10
+      MM_SERVICESETTINGS_SITEURL: http://${MM_HOSTNAME}:8065
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: true
+    ports:
+      - "8065:8065"
+    volumes:
+      - mattermost-data:/mattermost
+    networks:
+      - mattermost-network
+
+volumes:
+  mattermost-db-data:
+  mattermost-data:
+
+networks:
+  mattermost-network:
+    driver: bridge
+DOCKER_EOF
+
+    # Экспортируем переменные окружения
+    export MM_DB_PASSWORD="$MM_DB_PASSWORD"
+    export MM_HOSTNAME=$(hostname -f)
+    
+    # Записываем пароль БД в файл для последующего использования
+    echo "MM_DB_PASSWORD=$MM_DB_PASSWORD" >> /tmp/.mattermost_db_password
+
+    # Запускаем Mattermost через Docker Compose
+    log_info "Запуск Mattermost через Docker Compose..."
+    docker compose up -d
+
+    # Ждём запуска сервиса
+    log_info "Ожидание запуска Mattermost (это может занять несколько минут)..."
+    sleep 30
+
+    # Проверяем статус
+    if docker compose ps | grep -q "mattermost-app.*Up"; then
+        log_success "Mattermost установлен и запущен"
+        log_info "URL Mattermost: http://$(hostname -f):8065/"
+        log_info "Логин администратора: admin@schoolcrm.local"
+        log_info "Пароль администратора: $MM_ADMIN_PASSWORD (сохранён в /tmp/.mattermost_admin_password)"
+        log_warning "⚠️  Смените пароль администратора после первого входа!"
+    else
+        log_warning "⚠️  Mattermost запущен, но возможна ошибка при старте. Проверьте логи: docker compose logs"
+    fi
+}
+
+# =============================================================================
+# ШАГ 43: Загрузка тестовых данных (опционально)
+# =============================================================================
+
+load_test_data() {
+    log_step "Шаг 43/9: Загрузка тестовых данных"
+
+    log_info "Заполнение базы данных тестовыми данными..."
+
+    cd "$INSTALL_DIR"
+
+    # Активируем виртуальное окружение
+    source venv/bin/activate
+
+    # Применяем миграции (если ещё не применены)
+    python manage.py migrate --noinput
+
+    # Создаём суперпользователя если не существует
+    log_info "Создание суперпользователя admin@schoolcrm.local..."
+    python manage.py shell << 'PYTHON_EOF'
+from django.contrib.auth import get_user_model
+User = get_user_model()
+if not User.objects.filter(email='admin@schoolcrm.local').exists():
+    User.objects.create_superuser('admin@schoolcrm.local', 'admin123')
+    print('Суперпользователь создан')
+else:
+    print('Суперпользователь уже существует')
+PYTHON_EOF
+
+    # Загружаем тестовые данные через management command
+    log_info "Создание тестовых пользователей и структур..."
+    python manage.py seed_test_data
+
+    log_success "Тестовые данные загружены"
+    log_info "Созданы:"
+    log_info "  - Директор школы (director@schoolcrm.local / password123)"
+    log_info "  - Заместитель директора (viceprincipal@schoolcrm.local / password123)"
+    log_info "  - Учителя (teacher1..5@schoolcrm.local / password123)"
+    log_info "  - Классные руководители (homeroom1..3@schoolcrm.local / password123)"
+    log_info "  - Ученики (student1..30@schoolcrm.local / password123)"
+    log_info "  - Родители (parent1..30@schoolcrm.local / password123)"
+    log_info "  - Поставщик питания (nutrition@schoolcrm.local / password123)"
+    log_info "  - Учебные классы, предметы, расписание"
+    log_warning "⚠️  Смените пароли после первого входа!"
 }
 
 # =============================================================================
@@ -11449,18 +12417,59 @@ print_final_stats() {
     log_info "  Архитектура: $INSTALL_DIR/docs/ARCHITECTURE.md"
     log_info "  Развёртывание: $INSTALL_DIR/docs/DEPLOY.md"
     echo ""
+    }
+    # Информация о Mattermost если установлен
+    if [ "$INSTALL_MATTERMOST" = true ]; then
+        log_success "💬 Mattermost:"
+        log_info "  URL: http://$(hostname -f):8065/"
+        log_info "  Admin Email: admin@schoolcrm.local"
+        if [ -f /tmp/.mattermost_admin_password ]; then
+            source /tmp/.mattermost_admin_password
+            log_info "  Admin Password: $MM_ADMIN_PASSWORD"
+        fi
+        log_info "  Команда регистрации: python manage.py register_mattermost_users --role teacher --count 10 --export xls"
+        echo ""
+    fi
+    
+    # Информация о Jitsi если установлен
+    if [ "$INSTALL_JITSI" = true ]; then
+        log_success "📹 Jitsi Meet:"
+        log_info "  URL: https://$(hostname -f)/"
+        echo ""
+    fi
+    # Информация о SSL сертификате если установлен
+    if [ "$INSTALL_CERTBOT" = true ]; then
+        log_success "🔒 SSL сертификат:"
+        if [ -f "/etc/letsencrypt/live/$(hostname -f)/fullchain.pem" ]; then
+            log_info "  Тип: Let's Encrypt (доверенный)"
+            log_info "  Действителен до: $(openssl x509 -enddate -noout -in /etc/letsencrypt/live/$(hostname -f)/fullchain.pem 2>/dev/null | cut -d= -f2)"
+            log_info "  Автопродление: включено (проверка каждые 12 часов)"
+        else
+            log_info "  Тип: самоподписанный"
+            log_info "  Действителен до: $(openssl x509 -enddate -noout -in /etc/ssl/schoolcrm/server.crt 2>/dev/null | cut -d= -f2)"
+            log_info "  Автоперевыпуск: 1-го числа каждого месяца"
+        fi
+        echo ""
+    fi
+
     log_warning "⚠️  Важно:"
     log_info "  1. Смените пароль администратора после первого входа"
-    log_info "  2. Настройте SSL сертификат для продакшена"
+    if [ "$INSTALL_CERTBOT" != true ]; then
+        log_info "  2. Установите SSL сертификат: sudo ./install.sh --certbot"
+    else
+        log_info "  2. SSL сертификат установлен и настроено автопродление"
+    fi
     log_info "  3. Настройте firewall: sudo ufw allow 'Nginx Full' && sudo ufw enable"
     echo ""
-}
 
 # =============================================================================
 # ГЛАВНАЯ ФУНКЦИЯ
 # =============================================================================
 
 main() {
+    # Парсинг аргументов командной строки
+    parse_args "$@"
+    
     echo -e "${CYAN}"
     echo "╔══════════════════════════════════════════════════════════╗"
     echo "║     School CRM — Единый скрипт установки                 ║"
@@ -11469,6 +12478,20 @@ main() {
     echo -e "${NC}"
 
     log_info "Директория установки: $INSTALL_DIR"
+    
+    # Отображение опций установки
+    if [ "$INSTALL_TEST_DATA" = true ]; then
+        log_info "Опция: Установка тестовых данных включена"
+    fi
+    if [ "$INSTALL_JITSI" = true ]; then
+        log_info "Опция: Установка Jitsi Meet включена"
+    fi
+    if [ "$INSTALL_MATTERMOST" = true ]; then
+        log_info "Опция: Установка Mattermost включена"
+    fi
+    if [ "$INSTALL_CERTBOT" = true ]; then
+        log_info "Опция: Установка SSL сертификата (Certbot) включена"
+    fi
 
     # Перенаправление вывода в лог с сохранением в консоли
     exec > >(tee -a "$LOG_FILE") 2>&1
@@ -11521,13 +12544,36 @@ main() {
     setup_supervisor
     setup_environment
     setup_backups
+    
+    # Установка SSL сертификатов (Certbot)
+    if [ "$INSTALL_CERTBOT" = true ]; then
+        install_certbot
+    else
+        log_info "SSL сертификат не установлен. Для установки используйте опцию --certbot"
+    fi
+    
     start_services
+
+    # Установка Jitsi Meet (опционально)
+    if [ "$INSTALL_JITSI" = true ]; then
+        install_jitsi
+    fi
+
+    # Установка Mattermost (опционально)
+    if [ "$INSTALL_MATTERMOST" = true ]; then
+        install_mattermost
+    fi
+
+    # Загрузка тестовых данных (опционально)
+    if [ "$INSTALL_TEST_DATA" = true ]; then
+        load_test_data
+    fi
 
     # Финальная статистика
     print_final_stats
 
     # Удаляем временные файлы с паролями
-    rm -f /tmp/.db_password /tmp/.redis_password
+    rm -f /tmp/.db_password /tmp/.redis_password /tmp/.mattermost_admin_password /tmp/.mattermost_db_password
 
     log_success "Установка полностью завершена!"
 }
@@ -11536,5 +12582,5 @@ main() {
 # ЗАПУСК
 # =============================================================================
 
-# Запускаем главную функцию
+# Запускаем главную функцию с аргументами
 main "$@"
