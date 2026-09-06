@@ -349,44 +349,44 @@ FILE_EOF
     # -------------------------------------------------------------------------
     write_file "requirements.txt" << 'FILE_EOF'
 # Django и базовые зависимости
-Django==5.0.1
-psycopg2-binary==2.9.9
-djangorestframework==3.14.0
-drf-spectacular==0.27.0
+Django>=5.1
+psycopg2-binary>=2.9
+djangorestframework>=3.14
+drf-spectacular>=0.27
 
 # Celery и Redis
-celery==5.3.6
-redis==5.0.1
+celery>=5.3
+redis>=5.0
 
 # Аутентификация
-djangorestframework-simplejwt==5.3.1
+djangorestframework-simplejwt>=5.3
 
 # CORS
-django-cors-headers==4.3.1
+django-cors-headers>=4.3
 
 # WebSocket
-channels==4.0.0
-channels-redis==4.1.0
-daphne==4.0.0
+channels>=4.0
+channels-redis>=4.1
+daphne>=4.0
 
 # WSGI сервер
-gunicorn==21.2.0
+gunicorn>=21.2
 
 # Утилиты
-Pillow==11.0.0
-python-dotenv==1.0.0
-openpyxl==3.1.2
-WeasyPrint==60.2
-requests==2.31.0
+Pillow>=11.0.0
+python-dotenv>=1.0
+openpyxl>=3.1
+WeasyPrint>=60.2
+requests>=2.31
 
 # Безопасность
-cryptography==41.0.7
+cryptography>=41.0
 
 # Тесты
-pytest==7.4.4
-pytest-django==4.7.0
-pytest-cov==4.1.0
-factory-boy==3.3.0
+pytest>=7.4
+pytest-django>=4.7
+pytest-cov>=4.1
+factory-boy>=3.3
 FILE_EOF
 
     # -------------------------------------------------------------------------
