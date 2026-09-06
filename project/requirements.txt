@@ -1,0 +1,7 @@
+Django>=5.1
+psycopg2-binary>=2.9
+redis>=5.0
+celery>=5.3
+Pillow>=11.0.0
+gunicorn>=21.0
+python-dotenv>=1.0

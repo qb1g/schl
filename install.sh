@@ -349,44 +349,44 @@ FILE_EOF
     # -------------------------------------------------------------------------
     write_file "requirements.txt" << 'FILE_EOF'
 # Django и базовые зависимости
-Django==5.0.1
-psycopg2-binary==2.9.9
-djangorestframework==3.14.0
-drf-spectacular==0.27.0
+Django>=5.1
+psycopg2-binary>=2.9
+djangorestframework>=3.14
+drf-spectacular>=0.27
 
 # Celery и Redis
-celery==5.3.6
-redis==5.0.1
+celery>=5.3
+redis>=5.0
 
 # Аутентификация
-djangorestframework-simplejwt==5.3.1
+djangorestframework-simplejwt>=5.3
 
 # CORS
-django-cors-headers==4.3.1
+django-cors-headers>=4.3
 
 # WebSocket
-channels==4.0.0
-channels-redis==4.1.0
-daphne==4.0.0
+channels>=4.0
+channels-redis>=4.1
+daphne>=4.0
 
 # WSGI сервер
-gunicorn==21.2.0
+gunicorn>=21.2
 
 # Утилиты
-Pillow==10.2.0
-python-dotenv==1.0.0
-openpyxl==3.1.2
-WeasyPrint==60.2
-requests==2.31.0
+Pillow>=11.0.0
+python-dotenv>=1.0
+openpyxl>=3.1
+WeasyPrint>=60.2
+requests>=2.31
 
 # Безопасность
-cryptography==41.0.7
+cryptography>=41.0
 
 # Тесты
-pytest==7.4.4
-pytest-django==4.7.0
-pytest-cov==4.1.0
-factory-boy==3.3.0
+pytest>=7.4
+pytest-django>=4.7
+pytest-cov>=4.1
+factory-boy>=3.3
 FILE_EOF
 
     # -------------------------------------------------------------------------
@@ -2034,7 +2034,6 @@ FILE_EOF
 # =============================================================================
 # СТРАНИЦА 3 ЗАВЕРШЕНА
 # =============================================================================
-#!/bin/bash
 # =============================================================================
 # СТРАНИЦА 4 / СТРАНИЦА 11
 # =============================================================================
@@ -11548,21 +11547,48 @@ write_documentation() {
 ```bash
 chmod +x install.sh
 sudo ./install.sh /opt/schoolcrm
-#!/bin/bash
-# =============================================================================
-# СТРАНИЦА 11 / СТРАНИЦА 11 (ФИНАЛЬНАЯ)
-# =============================================================================
-# Содержимое этой страницы:
-#   Шаг 34: Установка системных зависимостей
-#   Шаг 35: Настройка PostgreSQL
-#   Шаг 36: Настройка Redis
-#   Шаг 37: Настройка Nginx
-#   Шаг 38: Настройка Supervisor
-#   Шаг 39: Установка окружения
-#   Шаг 40: Настройка бэкапов
-#   Шаг 41: Запуск сервисов
-#   Главная функция main
-# =============================================================================
+```
+
+## Запуск
+
+```bash
+sudo supervisorctl start all
+```
+
+## Проверка статуса
+
+```bash
+python manage.py check
+curl http://localhost/health/
+```
+
+## Логи
+
+```bash
+tail -f /var/log/schoolcrm/*.log
+```
+
+## Бэкап
+
+```bash
+./scripts/backup.sh
+```
+
+## Восстановление
+
+```bash
+./scripts/restore.sh --latest
+```
+
+## Обновление
+
+```bash
+./scripts/update.sh
+```
+FILE_EOF
+
+    log_success "Документация записана"
+}
 
 # =============================================================================
 # ШАГ 34: Установка системных зависимостей
@@ -11585,9 +11611,6 @@ install_system_dependencies() {
         python3-dev \
         python3-pip \
         python3-venv \
-        python3.11 \
-        python3.11-venv \
-        python3.11-dev \
         postgresql \
         postgresql-contrib \
         redis-server \
@@ -11639,9 +11662,15 @@ setup_postgresql() {
 
     # Генерация пароля для БД
     DB_PASSWORD=$(openssl rand -base64 24)
+    # Определяем переменные для БД
+    export DB_NAME="schoolcrm"
+    export DB_USER="schoolcrm"
+    export DB_PASSWORD
 
     # Сохраняем пароль в .env (будет создан позже)
     echo "DB_PASSWORD=$DB_PASSWORD" > /tmp/.db_password
+    echo "DB_NAME=$DB_NAME" >> /tmp/.db_password
+    echo "DB_USER=$DB_USER" >> /tmp/.db_password
 
     systemctl enable postgresql
     systemctl start postgresql
@@ -11845,6 +11874,9 @@ setup_environment() {
 
     cd "$INSTALL_DIR"
 
+    # Определяем APP_USER если не определён
+    APP_USER="${APP_USER:-schoolcrm}"
+
     # Читаем пароли
     source /tmp/.db_password
     source /tmp/.redis_password
@@ -11883,14 +11915,23 @@ DEFAULT_FROM_EMAIL=noreply@$(hostname -f)
 JITSI_DOMAIN=meet.jit.si
 FILE_EOF
 
+    # Удаляем старое виртуальное окружение если существует
+    if [ -d "venv" ]; then
+        log_info "Удаление старого виртуального окружения..."
+        rm -rf venv
+    fi
+
     # Создаём виртуальное окружение
     log_info "Создание виртуального окружения..."
-    python3.11 -m venv venv
+    python3 -m venv venv
+
+    # Устанавливаем владельца на venv для APP_USER
+    chown -R "$APP_USER:$APP_USER" venv
 
     # Устанавливаем зависимости
     log_info "Установка зависимостей Python..."
-    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install --upgrade pip"
-    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install -r requirements.txt"
+    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install --upgrade pip --no-cache-dir"
+    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install -r requirements.txt --no-cache-dir"
 
     # Применяем миграции
     log_info "Применение миграций..."
