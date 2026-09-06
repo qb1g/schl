@@ -57,7 +57,12 @@ log_step()    { echo -e "\n${CYAN}═══ $1 ═══${NC}"; }
 INSTALL_DIR="${1:-/opt/schoolcrm}"
 APP_NAME="schoolcrm"
 APP_USER="schoolcrm"
+APP_GROUP="schoolcrm"
 LOG_FILE="/tmp/schoolcrm_install_$(date +%Y%m%d_%H%M%S).log"
+
+# Переменные базы данных
+DB_NAME="schoolcrm"
+DB_USER="schoolcrm"
 
 # Счётчики для статистики
 FILES_CREATED=0
@@ -227,7 +232,11 @@ mk_dir() {
 #   содержимое
 #   FILE_EOF
 write_file() {
-    local path="$INSTALL_DIR/$1"
+    local path="$1"
+    # Если путь не абсолютный, добавляем INSTALL_DIR
+    if [[ "$path" != /* ]]; then
+        path="$INSTALL_DIR/$path"
+    fi
     local dir=$(dirname "$path")
     mkdir -p "$dir"
     cat > "$path"
@@ -350,7 +359,7 @@ FILE_EOF
     write_file "requirements.txt" << 'FILE_EOF'
 # Django и базовые зависимости
 Django==5.0.1
-psycopg2-binary==2.9.9
+psycopg[binary]>=3.2.0
 djangorestframework==3.14.0
 drf-spectacular==0.27.0
 
@@ -373,10 +382,10 @@ daphne==4.0.0
 gunicorn==21.2.0
 
 # Утилиты
-Pillow==10.2.0
+Pillow>=10.4.0
 python-dotenv==1.0.0
 openpyxl==3.1.2
-WeasyPrint==60.2
+WeasyPrint>=60.2
 requests==2.31.0
 
 # Безопасность
@@ -732,6 +741,10 @@ write_settings_files() {
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Загрузка переменных окружения из .env файла
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -11124,7 +11137,6 @@ class Command(BaseCommand):
                         'first_name': f'Ученик{class_num}-{student_num}',
                         'last_name': f'Учеников{class_num}-{student_num}',
                         'role': 'student',
-                        'grade_class': f'{class_num}{"АБВ"[class_num-1]}',
                     }
                 )
                 student.set_password('password123')
@@ -11261,14 +11273,18 @@ class Command(BaseCommand):
 
     def create_user_in_db(self, username, email, password, role, first_name, last_name):
         """Создание пользователя в базе данных Django"""
+        # Проверяем валидность роли
+        valid_roles = ['DIRECTOR', 'DEPUTY', 'CLASS_TEACHER', 'TEACHER', 'STUDENT', 'PARENT']
+        if role not in valid_roles:
+            role = 'TEACHER'  # роль по умолчанию
+        
         user, created = User.objects.get_or_create(
             email=email,
             defaults={
                 'username': username,
                 'first_name': first_name,
                 'last_name': last_name,
-                'role': role,
-                'mattermost_role': MATTERMOST_ROLES.get(role, 'user'),
+                'role': role.lower(),
             }
         )
         if created:
@@ -11548,21 +11564,23 @@ write_documentation() {
 ```bash
 chmod +x install.sh
 sudo ./install.sh /opt/schoolcrm
-#!/bin/bash
-# =============================================================================
-# СТРАНИЦА 11 / СТРАНИЦА 11 (ФИНАЛЬНАЯ)
-# =============================================================================
-# Содержимое этой страницы:
-#   Шаг 34: Установка системных зависимостей
-#   Шаг 35: Настройка PostgreSQL
-#   Шаг 36: Настройка Redis
-#   Шаг 37: Настройка Nginx
-#   Шаг 38: Настройка Supervisor
-#   Шаг 39: Установка окружения
-#   Шаг 40: Настройка бэкапов
-#   Шаг 41: Запуск сервисов
-#   Главная функция main
-# =============================================================================
+```
+
+## Использование
+
+После установки откроите веб-интерфейс по адресу `http://your-server-ip`.
+
+## Документация
+
+Полная документация доступна в директории `docs/`.
+
+## Лицензия
+
+MIT License
+FILE_EOF
+
+    log_success "Документация создана"
+}
 
 # =============================================================================
 # ШАГ 34: Установка системных зависимостей
@@ -11585,9 +11603,6 @@ install_system_dependencies() {
         python3-dev \
         python3-pip \
         python3-venv \
-        python3.11 \
-        python3.11-venv \
-        python3.11-dev \
         postgresql \
         postgresql-contrib \
         redis-server \
@@ -11637,21 +11652,78 @@ install_system_dependencies() {
 setup_postgresql() {
     log_step "Шаг 35/9: Настройка PostgreSQL"
 
-    # Генерация пароля для БД
-    DB_PASSWORD=$(openssl rand -base64 24)
-
-    # Сохраняем пароль в .env (будет создан позже)
+    # Генерация пароля БЕЗ спецсимволов (hex вместо base64)
+    DB_PASSWORD=$(openssl rand -hex 24)
+    
+    # Сохраняем пароль во временный файл
     echo "DB_PASSWORD=$DB_PASSWORD" > /tmp/.db_password
 
     systemctl enable postgresql
     systemctl start postgresql
 
-    # Создаём БД и пользователя
+    # Ждём готовности PostgreSQL
+    log_info "Ожидание готовности PostgreSQL..."
+    for i in $(seq 1 30); do
+        if sudo -u postgres pg_isready -q 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+
+    # Настраиваем аутентификацию по паролю для локальных подключений
+    log_info "Настройка аутентификации PostgreSQL..."
+    
+    # Находим путь к pg_hba.conf
+    PG_HBA=$(find /etc/postgresql -name "pg_hba.conf" -path "*/main/*" 2>/dev/null | head -1)
+    
+    if [ -n "$PG_HBA" ]; then
+        # Резервная копия
+        cp "$PG_HBA" "${PG_HBA}.bak" 2>/dev/null || true
+        
+        # Заменяем peer на md5 для локальных подключений (используем | как разделитель)
+        sed -i 's|^local\s\+all\s\+all\s\+peer|local   all             all                                     md5|' "$PG_HBA"
+        # Заменяем scram-sha-256/peer на md5 для host подключений IPv4
+        sed -i 's|^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+\(peer\|scram-sha-256\|ident\)|host    all             all             127.0.0.1/32            md5|' "$PG_HBA"
+        # Заменяем scram-sha-256/peer на md5 для host подключений IPv6
+        sed -i 's|^host\s\+all\s\+all\s\+::1\/128\s\+\(peer\|scram-sha-256\|ident\)|host    all             all             ::1/128                 md5|' "$PG_HBA"
+        
+        # Перезагружаем PostgreSQL для применения настроек
+        systemctl restart postgresql
+        sleep 2
+    else
+        log_warning "Не удалось найти pg_hba.conf"
+    fi
+
+    # Создаём БД и пользователя с проверкой существования
     log_info "Создание базы данных и пользователя..."
-    sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';" 2>/dev/null || true
-    sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null || true
-    sudo -u postgres psql -c "ALTER USER $DB_USER CREATEDB;" 2>/dev/null || true
+    
+    # Проверяем, существует ли пользователь
+    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" 2>/dev/null | grep -q 1; then
+        log_info "Пользователь $DB_USER уже существует, обновляем пароль..."
+        sudo -u postgres psql -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASSWORD';"
+    else
+        log_info "Создаём пользователя $DB_USER..."
+        sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';"
+    fi
+
+    # Создаём БД если не существует
+    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" 2>/dev/null | grep -q 1; then
+        log_info "База данных $DB_NAME уже существует"
+    else
+        sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
+    fi
+
+    # Назначаем привилегии
+    sudo -u postgres psql -c "ALTER USER $DB_USER CREATEDB;"
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
+
+    # Проверяем подключение с паролем
+    log_info "Проверка подключения к БД..."
+    if PGPASSWORD="$DB_PASSWORD" psql -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+        log_success "Подключение к БД успешно"
+    else
+        log_warning "Проверка подключения не прошла, но продолжаем..."
+    fi
 
     log_success "PostgreSQL настроен"
 }
@@ -11688,6 +11760,20 @@ setup_redis() {
 
 setup_nginx() {
     log_step "Шаг 37/9: Настройка Nginx"
+
+    # Создаём пользователя и группу приложения если не существуют
+    if ! id "$APP_USER" &>/dev/null; then
+        log_info "Создание пользователя $APP_USER..."
+        groupadd -f "$APP_GROUP"
+        useradd -r -g "$APP_GROUP" -s /bin/false -d "$INSTALL_DIR" "$APP_USER"
+        log_success "Пользователь $APP_USER создан"
+    fi
+
+    # Проверяем существование группы www-data (создаём если нет)
+    if ! getent group www-data &>/dev/null; then
+        log_info "Создание группы www-data..."
+        groupadd www-data
+    fi
 
     # Создаём сокет-директорию
     mkdir -p /run/schoolcrm
@@ -11773,6 +11859,10 @@ FILE_EOF
 setup_supervisor() {
     log_step "Шаг 38/9: Настройка Supervisor"
 
+    # Создаём директорию для логов перед настройкой Supervisor
+    mkdir -p /var/log/schoolcrm
+    mkdir -p /run/schoolcrm
+    
     # Читаем пароли
     source /tmp/.db_password
     source /tmp/.redis_password
@@ -11849,6 +11939,11 @@ setup_environment() {
     source /tmp/.db_password
     source /tmp/.redis_password
 
+    # Создаём необходимые директории с mkdir -p перед chown
+    mkdir -p /var/log/schoolcrm
+    mkdir -p /var/media
+    mkdir -p /var/backups/schoolcrm
+
     # Генерация SECRET_KEY
     SECRET_KEY=$(python3 -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())' 2>/dev/null || openssl rand -base64 64)
 
@@ -11883,14 +11978,28 @@ DEFAULT_FROM_EMAIL=noreply@$(hostname -f)
 JITSI_DOMAIN=meet.jit.si
 FILE_EOF
 
-    # Создаём виртуальное окружение
+    # Создаём виртуальное окружение (от root, чтобы избежать проблем с правами)
     log_info "Создание виртуального окружения..."
-    python3.11 -m venv venv
+    python3 -m venv venv
 
-    # Устанавливаем зависимости
+    # Устанавливаем владельца на venv перед установкой пакетов
+    chown -R "$APP_USER:$APP_GROUP" venv
+
+    # Устанавливаем зависимости (от имени пользователя приложения)
     log_info "Установка зависимостей Python..."
-    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install --upgrade pip"
-    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install -r requirements.txt"
+    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install --upgrade pip --no-cache-dir"
+    sudo -u "$APP_USER" bash -c "cd $INSTALL_DIR && source venv/bin/activate && pip install -r requirements.txt --no-cache-dir"
+
+
+    # =============================================================================
+    # ВАЖНО: Устанавливаем права ДО запуска команд от имени пользователя приложения
+    # Это необходимо, чтобы Django мог создать файлы логов, статики и т.д.
+    # =============================================================================
+    log_info "Настройка прав доступа..."
+    chown -R "$APP_USER:$APP_GROUP" "$INSTALL_DIR"
+    chown -R "$APP_USER:$APP_GROUP" "/var/log/schoolcrm"
+    chown -R "$APP_USER:$APP_GROUP" "/var/media"
+    chown -R "$APP_USER:$APP_GROUP" "/var/backups/schoolcrm"
 
     # Применяем миграции
     log_info "Применение миграций..."
@@ -11915,12 +12024,6 @@ if not User.objects.filter(email='admin@schoolcrm.local').exists():
 else:
     print('ℹ️  Суперпользователь уже существует')
 EOF
-
-    # Устанавливаем права
-    chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR"
-    chown -R "$APP_USER:$APP_USER" "/var/log/schoolcrm"
-    chown -R "$APP_USER:$APP_USER" "/var/media"
-    chown -R "$APP_USER:$APP_USER" "/var/backups/schoolcrm"
 
     log_success "Окружение установлено"
 }
@@ -12114,8 +12217,18 @@ TIMER_EOF
         
         # Проверяем, есть ли уже SSL настройка
         if ! grep -q "ssl_certificate" /etc/nginx/sites-available/schoolcrm; then
-            # Добавляем SSL настройки
+            # Добавляем SSL настройки с корректными upstream'ами
             cat > /etc/nginx/sites-available/schoolcrm << 'NGINX_SSL'
+# Upstream для Gunicorn (Django)
+upstream schoolcrm_app {
+    server unix:/run/schoolcrm/gunicorn.sock fail_timeout=0;
+}
+
+# Upstream для Daphne (WebSockets)
+upstream schoolcrm_daphne {
+    server unix:/run/schoolcrm/daphne.sock fail_timeout=0;
+}
+
 server {
     listen 80;
     server_name _;
@@ -12125,25 +12238,40 @@ server {
 server {
     listen 443 ssl http2;
     server_name _;
-    
+
     # Пути к сертификатам будут заменены скриптом
     ssl_certificate /etc/ssl/schoolcrm/server.crt;
     ssl_certificate_key /etc/ssl/schoolcrm/server.key;
-    
+
     # SSL настройки
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 10m;
-    
-    # Остальные настройки...
+
+    # Основное приложение (Django/Gunicorn)
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://schoolcrm_app;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # WebSocket соединения (Daphne)
+    location /ws/ {
+        proxy_pass http://schoolcrm_daphne;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
     }
 }
 NGINX_SSL
@@ -12417,7 +12545,7 @@ print_final_stats() {
     log_info "  Архитектура: $INSTALL_DIR/docs/ARCHITECTURE.md"
     log_info "  Развёртывание: $INSTALL_DIR/docs/DEPLOY.md"
     echo ""
-    }
+
     # Информация о Mattermost если установлен
     if [ "$INSTALL_MATTERMOST" = true ]; then
         log_success "💬 Mattermost:"
@@ -12461,6 +12589,7 @@ print_final_stats() {
     fi
     log_info "  3. Настройте firewall: sudo ufw allow 'Nginx Full' && sudo ufw enable"
     echo ""
+}
 
 # =============================================================================
 # ГЛАВНАЯ ФУНКЦИЯ
